@@ -10,6 +10,7 @@ import {PostDeploymentRoleCheck} from "../../contracts/deployment/PostDeployment
 import {GovernedModuleRegistry} from "../../contracts/governance/v2/GovernedModuleRegistry.sol";
 import {TruthBountyGovernanceToken} from "../../contracts/governance/v2/TruthBountyGovernanceToken.sol";
 import {TruthBountyGovernor} from "../../contracts/governance/v2/TruthBountyGovernor.sol";
+import {IGovernanceSnapshot} from "../../contracts/governance/v2/IGovernanceSnapshot.sol";
 import {GovernanceGuardian} from "../../contracts/governance/v2/GovernanceGuardian.sol";
 import {ITruthBountyGovernor} from "../../contracts/governance/v2/ITruthBountyGovernor.sol";
 import {GovernanceRoleTopology} from "../../contracts/governance/v2/GovernanceRoleTopology.sol";
@@ -76,9 +77,11 @@ contract DeployerRoleRenunciationHandler is Test {
         try registry.grantRole(DEFAULT_ADMIN_ROLE, deployer) {} catch {}
     }
 
-    /// @notice Attempt to re-grant TIMELOCK_ADMIN_ROLE to deployer.
+    /// @notice Attempt to re-grant timelock administration to deployer.
     function attemptRegrantTimelockAdmin() external {
         if (!handoffComplete) return;
+        vm.prank(deployer);
+        try timelock.grantRole(DEFAULT_ADMIN_ROLE, deployer) {} catch {}
         vm.prank(deployer);
         try timelock.grantRole(TIMELOCK_ADMIN_ROLE, deployer) {} catch {}
     }
@@ -107,6 +110,8 @@ contract DeployerRoleRenunciationHandler is Test {
 contract DeployerRoleRenunciationInvariantTest is Test {
     DeployerRoleRenunciationHandler handler;
 
+    bytes32 internal constant DEFAULT_ADMIN_ROLE = bytes32(0);
+
     address deployer = address(0xD1);
     address guardian = address(0xA1);
 
@@ -123,7 +128,7 @@ contract DeployerRoleRenunciationInvariantTest is Test {
         address[] memory empty = new address[](0);
         timelock = new TimelockController(2 days, empty, empty, deployer);
         governor = new TruthBountyGovernor(
-            IVotes(address(govToken)), timelock, registry, guardian,
+            IVotes(address(govToken)), timelock, registry, IGovernanceSnapshot(address(0)), guardian,
             uint48(1 days), uint32(3 days), 100_000 ether, 4
         );
         guardianContract = new GovernanceGuardian(deployer, guardian, ITruthBountyGovernor(address(governor)));
@@ -163,8 +168,12 @@ contract DeployerRoleRenunciationInvariantTest is Test {
         if (!handler.handoffComplete()) return;
 
         assertTrue(
-            timelock.hasRole(keccak256("TIMELOCK_ADMIN_ROLE"), address(timelock)),
+            timelock.hasRole(DEFAULT_ADMIN_ROLE, address(timelock)),
             "INVARIANT VIOLATED: timelock lost self-administration"
+        );
+        assertFalse(
+            timelock.hasRole(keccak256("TIMELOCK_ADMIN_ROLE"), address(timelock)),
+            "INVARIANT VIOLATED: legacy TIMELOCK_ADMIN_ROLE granted"
         );
     }
 
